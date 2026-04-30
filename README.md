@@ -24,7 +24,7 @@ Automated setup script for code-server with pre-configured extensions and CLI to
 Open VS Code terminal
 ```bash
 # Run the initialization script
-curl -LsSf https://raw.githubusercontent.com/Jounce-IO/datascience-env/refs/heads/main/code-server-init.sh | sh
+curl -LsSf https://raw.githubusercontent.com/Jounce-IO/datascience-env/refs/heads/main/code-server-init.sh | sh && exec bash -i
 ```
 
 The script is idempotent - safe to run multiple times. It will skip already-installed components.
