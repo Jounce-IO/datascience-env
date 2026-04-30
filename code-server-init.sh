@@ -309,4 +309,3 @@ if [ ${#LOCAL_INSTALL_DIRS[@]} -gt 0 ]; then
 fi
 
 echo "========================================"
-exec bash
