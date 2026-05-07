@@ -31,12 +31,13 @@ The script is idempotent - safe to run multiple times. It will skip already-inst
 
 #### Post Installation
 
-1. Authenticate CLI tools:
+1. **Reload VS Code** to apply the new settings (close and reopen the browser tab) 
+
+2. Authenticate CLI tools:
    ```bash
    gcloud auth application-default login
    gcloud auth application-default set-quota-project cloudability-it-gemini
    gh auth login
    ```
 
-2. Open VS Code settings, search for “Claude Code login”, and check Disable Login Prompt.
 
