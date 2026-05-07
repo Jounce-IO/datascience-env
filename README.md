@@ -24,19 +24,20 @@ Automated setup script for code-server with pre-configured extensions and CLI to
 Open VS Code terminal
 ```bash
 # Run the initialization script
-curl -LsSf https://raw.githubusercontent.com/Jounce-IO/datascience-env/refs/heads/main/code-server-init.sh | sh
+curl -LsSf https://raw.githubusercontent.com/Jounce-IO/datascience-env/refs/heads/main/code-server-init.sh | sh && exec bash -i
 ```
 
 The script is idempotent - safe to run multiple times. It will skip already-installed components.
 
 #### Post Installation
 
-1. Authenticate CLI tools:
+1. **Reload VS Code** to apply the new settings (close and reopen the browser tab) 
+
+2. Authenticate CLI tools:
    ```bash
    gcloud auth application-default login
    gcloud auth application-default set-quota-project cloudability-it-gemini
    gh auth login
    ```
 
-2. Open VS Code settings, search for “Claude Code login”, and check Disable Login Prompt.
 

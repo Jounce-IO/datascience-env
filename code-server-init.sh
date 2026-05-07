@@ -6,15 +6,12 @@ set -e
 
 # Ensure system directories are in PATH (critical for restricted environments)
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-echo 'export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"' >> ~/.bashrc
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-echo "export SCRIPT_DIR=$SCRIPT_DIR" >> ~/.bashrc
 
 # Add local installation directories to PATH (relative to script location)
 export PATH="$SCRIPT_DIR/bin:$SCRIPT_DIR/node/bin:$SCRIPT_DIR/gh/bin:$SCRIPT_DIR/google-cloud-sdk/bin:$PATH"
-echo 'export PATH="'$SCRIPT_DIR'/bin:'$SCRIPT_DIR'/node/bin:/opt/app-root/src/node:node/bin:'$SCRIPT_DIR'/gh/bin:'$SCRIPT_DIR'/google-cloud-sdk/bin:$PATH"' >> ~/.bashrc
 
 
 # Use absolute paths for core utilities (for extremely restricted environments)
@@ -215,9 +212,7 @@ if ! command -v npm &> /dev/null; then
 
             # Add node/bin to PATH for this session
             export PATH="$SCRIPT_DIR/node/bin:$PATH"
-            echo 'export PATH="$SCRIPT_DIR/node/bin:$PATH"' >> ~/.bashrc
             export PATH="/opt/app-root/src/node:$PATH"
-            echo 'export PATH="/opt/app-root/src/node:$PATH"' >> ~/.bashrc
 
             print_status "✓ Node.js installed to $SCRIPT_DIR/node"
             print_status "node version: $(node --version)"
@@ -252,11 +247,9 @@ else
             print_status "✓ claude-code installed via npm"
             # Set Vertex AI environment variables for this session
             export ANTHROPIC_VERTEX_PROJECT_ID=itpc-gcp-ai-eng-claude
-            echo 'export ANTHROPIC_VERTEX_PROJECT_ID=itpc-gcp-ai-eng-claude' >> ~/.bashrc
             export CLAUDE_CODE_USE_VERTEX=1
-            echo 'export CLAUDE_CODE_USE_VERTEX=1' >> ~/.bashrc
             export CLOUD_ML_REGION=global
-            echo 'export CLOUD_ML_REGION=global' >> ~/.bashrc
+            export NODE_TLS_REJECT_UNAUTHORIZED=0
             print_status "Vertex AI configuration set for this session"
             claude --version
         else
@@ -268,7 +261,192 @@ else
         print_warning "Install Node.js first, then run: npm install -g @anthropic-ai/claude-code"
     fi
 fi
-echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> ~/.bashrc
+
+# ========================================
+# Update ~/.bashrc Idempotently
+# ========================================
+echo ""
+print_status "Updating ~/.bashrc with configuration..."
+
+# Remove old configuration block if it exists
+sed -i.bak '/# BEGIN code-server config/,/# END code-server config/d' ~/.bashrc 2>/dev/null || true
+
+# Write new configuration block with expanded SCRIPT_DIR
+cat >> ~/.bashrc << EOF_BASHRC
+# BEGIN code-server config
+export PATH="$PATH:\$PATH"
+export ANTHROPIC_VERTEX_PROJECT_ID=itpc-gcp-ai-eng-claude
+export CLAUDE_CODE_USE_VERTEX=1
+export CLOUD_ML_REGION=global
+export NODE_TLS_REJECT_UNAUTHORIZED=0
+# END code-server config
+EOF_BASHRC
+
+print_status "✓ ~/.bashrc updated (restart shell or run 'source ~/.bashrc' to apply)"
+
+# ========================================
+# Configure VS Code Settings for Claude Code
+# ========================================
+echo ""
+print_status "Configuring VS Code settings for Claude Code..."
+
+VSCODE_SETTINGS_DIR="$HOME/.local/share/code-server/User"
+VSCODE_SETTINGS_FILE="$VSCODE_SETTINGS_DIR/settings.json"
+
+# Create directory if it doesn't exist
+mkdir -p "$VSCODE_SETTINGS_DIR"
+
+# Check if settings.json exists
+if [ -f "$VSCODE_SETTINGS_FILE" ]; then
+    print_status "Updating existing settings.json..."
+
+    # Backup existing settings
+    cp "$VSCODE_SETTINGS_FILE" "$VSCODE_SETTINGS_FILE.bak"
+
+    # Use Python to update JSON (handles JSONC format with comments)
+    if command -v python3 &> /dev/null; then
+        VSCODE_SETTINGS_FILE="$VSCODE_SETTINGS_FILE" PATH_VALUE="$PATH" python3 << 'PYTHON_EOF'
+import json
+import os
+import sys
+import re
+
+settings_file = os.environ['VSCODE_SETTINGS_FILE']
+path_value = os.environ['PATH_VALUE']
+
+def strip_jsonc_comments(text):
+    """Remove comments and trailing commas from JSONC (JSON with Comments)"""
+    result = []
+    in_string = False
+    in_single_comment = False
+    in_multi_comment = False
+    escape_next = False
+    i = 0
+
+    while i < len(text):
+        char = text[i]
+        next_char = text[i + 1] if i + 1 < len(text) else ''
+
+        # Handle string state
+        if in_string:
+            result.append(char)
+            if escape_next:
+                escape_next = False
+            elif char == '\\':
+                escape_next = True
+            elif char == '"':
+                in_string = False
+            i += 1
+            continue
+
+        # Handle multi-line comment state
+        if in_multi_comment:
+            if char == '*' and next_char == '/':
+                in_multi_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+
+        # Handle single-line comment state
+        if in_single_comment:
+            if char == '\n':
+                in_single_comment = False
+                result.append(char)  # Keep the newline
+            i += 1
+            continue
+
+        # Check for comment starts
+        if char == '/' and next_char == '/':
+            in_single_comment = True
+            i += 2
+            continue
+
+        if char == '/' and next_char == '*':
+            in_multi_comment = True
+            i += 2
+            continue
+
+        # Check for string start
+        if char == '"':
+            in_string = True
+            result.append(char)
+            i += 1
+            continue
+
+        # Regular character
+        result.append(char)
+        i += 1
+
+    # Join and remove trailing commas
+    cleaned = ''.join(result)
+    cleaned = re.sub(r',(\s*[}\]])', r'\1', cleaned)
+    return cleaned
+
+try:
+    with open(settings_file, 'r') as f:
+        content = f.read()
+
+    # Try parsing as standard JSON first
+    try:
+        settings = json.loads(content)
+    except json.JSONDecodeError:
+        # If that fails, try stripping JSONC comments
+        cleaned_content = strip_jsonc_comments(content)
+        try:
+            settings = json.loads(cleaned_content)
+        except json.JSONDecodeError as e:
+            print(f"ERROR: Invalid JSON in {settings_file}: {e}", file=sys.stderr)
+            print(f"Content preview: {cleaned_content[:200]}", file=sys.stderr)
+            sys.exit(1)
+
+except FileNotFoundError:
+    settings = {}
+
+# Build environment variables as a list of objects
+env_vars = [
+    {'name': 'PATH', 'value': path_value},
+    {'name': 'CLAUDE_CODE_USE_VERTEX', 'value': "1"},
+    {'name': 'CLOUD_ML_REGION', 'value': "global"},
+    {'name': 'ANTHROPIC_VERTEX_PROJECT_ID', 'value': "itpc-gcp-ai-eng-claude"}
+]
+
+settings['claudeCode.environmentVariables'] = env_vars
+settings['claudeCode.disableLoginPrompt'] = True
+
+with open(settings_file, 'w') as f:
+    json.dump(settings, f, indent=2)
+
+print("✓ Updated claudeCode settings using Python")
+PYTHON_EOF
+    else
+        print_error "Python3 not available - cannot update settings.json"
+        print_warning "Manually add to settings.json:"
+        echo "  \"claudeCode.environmentVariables\": ["
+        echo "    {\"name\": \"PATH\", \"value\": \"$PATH\"},"
+        echo "    {\"name\": \"CLAUDE_CODE_USE_VERTEX\", \"value\": \"1\"},"
+        echo "    {\"name\": \"CLOUD_ML_REGION\", \"value\": \"global\"},"
+        echo "    {\"name\": \"ANTHROPIC_VERTEX_PROJECT_ID\", \"value\": \"itpc-gcp-ai-eng-claude\"}"
+        echo "  ],"
+        echo "  \"claudeCode.disableLoginPrompt\": true"
+    fi
+else
+    print_status "Creating new settings.json..."
+
+    # Create new settings.json with Claude Code configuration
+    cat > "$VSCODE_SETTINGS_FILE" << EOF
+{
+  "claudeCode.environmentVariables": [
+    {"name": "PATH", "value": "$PATH"},
+    {"name": "CLAUDE_CODE_USE_VERTEX", "value": "1"},
+    {"name": "CLOUD_ML_REGION", "value": "global"},
+    {"name": "ANTHROPIC_VERTEX_PROJECT_ID", "value": "itpc-gcp-ai-eng-claude"}
+  ],
+  "claudeCode.disableLoginPrompt": true
+}
+EOF
+    print_status "✓ Created settings.json with claudeCode configuration"
+fi
 
 # ========================================
 # Summary
