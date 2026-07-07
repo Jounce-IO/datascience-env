@@ -243,6 +243,16 @@ if command -v claude &> /dev/null; then
 else
     if command -v npm &> /dev/null; then
         print_status "Installing claude-code via npm..."
+        # Create a directory for global packages
+        mkdir -p ~/.npm-global
+        
+        # Configure npm to use it
+        npm config set prefix ~/.npm-global
+        
+        # Add to PATH (add this line to your ~/.bashrc)
+        echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+        source ~/.bashrc
+        
         if npm install -g @anthropic-ai/claude-code; then
             print_status "✓ claude-code installed via npm"
             # Set Vertex AI environment variables for this session
